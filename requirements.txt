@@ -1,0 +1,5 @@
+streamlit
+ultralytics
+Pillow
+huggingface_hub
+opencv-python-headless
