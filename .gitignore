@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+
+# Model weights auto-downloaded by ultralytics at runtime - không cần commit
+yolov8n.pt
+*.pt
+
+# Virtual environments
+venv/
+.venv/
+.venv_test/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / Editor
+.DS_Store
+Thumbs.db
