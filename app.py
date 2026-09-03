@@ -153,6 +153,19 @@ TEN_LOP_TIENG_VIET = [
     "Hiệu lệnh",
 ]
 
+# Bản không dấu, chỉ dùng để vẽ chữ lên ảnh. Lý do: font mặc định của Pillow
+# không có glyph cho ký tự tiếng Việt nên chữ có dấu sẽ hiện thành ô vuông rác.
+# Còn phần danh sách kết quả bên dưới ảnh là HTML nên vẫn để tiếng Việt có dấu.
+TEN_LOP_KHONG_DAU = [
+    "Cam nguoc chieu",
+    "Cam dung va do",
+    "Cam re",
+    "Gioi han toc do",
+    "Cam con lai",
+    "Nguy hiem",
+    "Hieu lenh",
+]
+
 # Tìm thư mục chứa kết quả đánh giá. Phải dò nhiều vị trí vì file app.py này có
 # thể được copy sang repo khác, nơi app.py nằm ngay thư mục gốc chứ không nằm
 # trong app/. Có thể ép cứng đường dẫn bằng biến môi trường EVAL_RESULTS_DIR.
@@ -266,61 +279,91 @@ def _lay_font(co_chu: int = 16):
         return ImageFont.load_default()
 
 
-def doi_ten_lop(class_id: int, ten_goc: str) -> str:
-    """Đổi tên lớp tiếng Anh của model sang tiếng Việt cho người dùng dễ đọc."""
-    if 0 <= class_id < len(TEN_LOP_TIENG_VIET):
-        return TEN_LOP_TIENG_VIET[class_id]
+def doi_ten_lop(class_id: int, ten_goc: str, co_dau: bool = True) -> str:
+    """Đổi tên lớp tiếng Anh của model sang tiếng Việt cho người dùng dễ đọc.
+
+    Đặt `co_dau=False` khi cần vẽ chữ lên ảnh, vì font của Pillow không đọc
+    được ký tự có dấu.
+    """
+    bang_ten = TEN_LOP_TIENG_VIET if co_dau else TEN_LOP_KHONG_DAU
+    if 0 <= class_id < len(bang_ten):
+        return bang_ten[class_id]
     return ten_goc
 
 
-def ve_ket_qua(anh: Image.Image, ket_qua, nguong_conf: float = 0.25):
-    """Vẽ bounding box, tên lớp và độ tin cậy lên ảnh gốc.
+def _boc_danh_sach_box(ket_qua, nguong_conf: float):
+    """Bóc các box vượt ngưỡng ra khỏi kết quả của model, sắp theo độ tin cậy giảm dần.
 
-    Trả về (ảnh đã vẽ, danh sách chi tiết từng box) để phần dưới còn hiển thị bảng.
+    Phải sắp xếp và đánh số ngay tại đây, trước khi vẽ, để số thứ tự trên ảnh
+    trùng khớp với số thứ tự ở danh sách chú thích bên dưới.
     """
-    anh_ve = anh.convert("RGB").copy()
-    but_ve = ImageDraw.Draw(anh_ve)
-    font = _lay_font(co_chu=max(14, anh.width // 80))
-
-    ten_cac_lop = ket_qua.names  # dict {class_id: tên} lấy động từ chính model
-    danh_sach_box = []
-
+    danh_sach = []
     boxes = ket_qua.boxes
     if boxes is None or len(boxes) == 0:
-        return anh_ve, danh_sach_box
+        return danh_sach
 
+    ten_cac_lop = ket_qua.names  # dict {class_id: tên} lấy động từ chính model
     for box in boxes:
         do_tin_cay = float(box.conf[0])
         if do_tin_cay < nguong_conf:
             continue
 
         class_id = int(box.cls[0])
-        nhan = doi_ten_lop(class_id, ten_cac_lop.get(class_id, str(class_id)))
-        x1, y1, x2, y2 = [float(v) for v in box.xyxy[0]]
+        ten_goc = ten_cac_lop.get(class_id, str(class_id))
+        danh_sach.append({
+            "class_id": class_id,
+            "nhan": doi_ten_lop(class_id, ten_goc, co_dau=True),
+            "nhan_khong_dau": doi_ten_lop(class_id, ten_goc, co_dau=False),
+            "do_tin_cay": do_tin_cay,
+            "toa_do": tuple(float(v) for v in box.xyxy[0]),
+        })
 
-        mau = MAU_BOX[class_id % len(MAU_BOX)]
-        do_day = max(2, anh.width // 400)
+    danh_sach.sort(key=lambda b: -b["do_tin_cay"])
+    for thu_tu, box in enumerate(danh_sach, start=1):
+        box["so_thu_tu"] = thu_tu
+    return danh_sach
+
+
+def ve_ket_qua(anh: Image.Image, ket_qua, nguong_conf: float = 0.25):
+    """Vẽ bounding box, số thứ tự, tên lớp và độ tin cậy lên ảnh gốc.
+
+    Trả về (ảnh đã vẽ, danh sách box đã sắp theo độ tin cậy giảm dần).
+    """
+    anh_ve = anh.convert("RGB").copy()
+    but_ve = ImageDraw.Draw(anh_ve)
+    font = _lay_font(co_chu=max(14, anh.width // 80))
+
+    danh_sach_box = _boc_danh_sach_box(ket_qua, nguong_conf)
+    do_day = max(2, anh.width // 400)
+    dem = 3
+
+    for box in danh_sach_box:
+        x1, y1, x2, y2 = box["toa_do"]
+        mau = MAU_BOX[box["class_id"] % len(MAU_BOX)]
 
         but_ve.rectangle([x1, y1, x2, y2], outline=mau, width=do_day)
 
-        # Nhãn kèm độ tin cậy, có nền màu cho dễ đọc trên mọi ảnh nền
-        chu_thich = f"{nhan} {do_tin_cay * 100:.1f}%"
+        # Nhãn gồm số thứ tự, tên lớp không dấu và độ tin cậy. Số thứ tự giúp
+        # đối chiếu nhanh với danh sách chú thích để biết box nào bị thấp điểm.
+        chu_thich = f"[{box['so_thu_tu']}] {box['nhan_khong_dau']} {box['do_tin_cay'] * 100:.1f}%"
         khung_chu = but_ve.textbbox((0, 0), chu_thich, font=font)
         rong_chu = khung_chu[2] - khung_chu[0]
         cao_chu = khung_chu[3] - khung_chu[1]
-        dem = 3
-        y_nhan = max(0, y1 - cao_chu - 2 * dem)
+
+        # Nhãn mặc định nằm phía trên box, nhưng nếu box sát mép trên thì đẩy
+        # nhãn xuống nằm bên trong, tránh bị cắt mất chữ
+        y_nhan = y1 - cao_chu - 2 * dem
+        if y_nhan < 0:
+            y_nhan = y1 + do_day
+        # Tương tự với mép phải, tránh nhãn dài tràn ra khỏi ảnh
+        x_nhan = min(x1, anh.width - rong_chu - 2 * dem)
+        x_nhan = max(0, x_nhan)
+
         but_ve.rectangle(
-            [x1, y_nhan, x1 + rong_chu + 2 * dem, y_nhan + cao_chu + 2 * dem],
+            [x_nhan, y_nhan, x_nhan + rong_chu + 2 * dem, y_nhan + cao_chu + 2 * dem],
             fill=mau,
         )
-        but_ve.text((x1 + dem, y_nhan + dem), chu_thich, fill="white", font=font)
-
-        danh_sach_box.append({
-            "nhan": nhan,
-            "do_tin_cay": do_tin_cay,
-            "toa_do": (x1, y1, x2, y2),
-        })
+        but_ve.text((x_nhan + dem, y_nhan + dem), chu_thich, fill="white", font=font)
 
     return anh_ve, danh_sach_box
 
@@ -491,11 +534,17 @@ def render_tab_demo(nguong_conf: float):
         unsafe_allow_html=True,
     )
 
-    danh_sach_sap_xep = sorted(danh_sach_box, key=lambda b: -b["do_tin_cay"])
-    for thu_tu, box in enumerate(danh_sach_sap_xep, start=1):
+    st.caption(
+        "Số thứ tự dưới đây trùng với số ghi trên từng khung trong ảnh, "
+        "nên có thể lần ngay ra vị trí của biển báo bị điểm thấp."
+    )
+
+    # Danh sách đã được sắp và đánh số sẵn từ lúc vẽ, không sắp lại ở đây nữa
+    # để số thứ tự hai bên luôn khớp nhau
+    for box in danh_sach_box:
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.markdown(f"**[{thu_tu}] {box['nhan']}**")
+            st.markdown(f"**[{box['so_thu_tu']}] {box['nhan']}**")
             st.progress(box["do_tin_cay"])
         with c2:
             st.markdown(f"**{box['do_tin_cay'] * 100:.2f}%**")
