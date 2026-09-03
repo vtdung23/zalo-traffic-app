@@ -1,0 +1,4 @@
+Model,imgsz,mAP@50 (%),mAP@50-95 (%),mAP_small (%),Inference (ms/anh),FPS
+YOLOv8s-P2,1280,73.11,42.6,38.41,55.06,18.16
+Faster R-CNN R50-FPN,800 (tu scale),2.98,1.25,0.13,131.68,7.59
+RT-DETR-L,640,71.98,47.15,40.21,76.88,13.01

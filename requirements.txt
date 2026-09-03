@@ -1,5 +1,19 @@
-streamlit
-ultralytics
-Pillow
-huggingface_hub
+# Ep pip lay ban torch danh cho CPU. Neu bo dong nay, pip se tai ban torch kem
+# CUDA nang vai GB va Streamlit Community Cloud se build that bai vi vuot dung luong.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+streamlit>=1.32
+ultralytics>=8.3
+
+torch
+torchvision
+
+# Ultralytics goi cv2 ben trong. Phai dung ban headless, vi ban thuong can thu vien
+# do hoa he thong libGL.so.1 vốn khong co tren may chu Linux khong man hinh.
 opencv-python-headless
+
+huggingface_hub
+pandas
+pillow
+
+ultralytics
